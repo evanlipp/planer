@@ -1,0 +1,29 @@
+services:
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-planer}
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build: ./backend
+    command: npm run start:dev
+    ports:
+      - '3000:3000'
+    environment:
+      PORT: 3000
+      FRONTEND_URL: http://localhost:5173
+      MONGODB_URI: mongodb://mongo:27017/planer
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      - mongo
+
+volumes:
+  mongo_data:
