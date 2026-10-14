@@ -5,7 +5,16 @@
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/[...path].ts": {
+    "api/health.ts": {
+      "maxDuration": 10
+    },
+    "api/auth/login.ts": {
+      "maxDuration": 10
+    },
+    "api/auth/refresh.ts": {
+      "maxDuration": 10
+    },
+    "api/auth/logout.ts": {
       "maxDuration": 10
     }
   },
