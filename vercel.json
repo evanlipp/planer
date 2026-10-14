@@ -1,29 +1,14 @@
 {
-  "services": {
-    "frontend": {
-      "root": "frontend",
-      "framework": "vite",
-      "installCommand": "npm ci --include=dev",
-      "buildCommand": "npm run build",
-      "outputDirectory": "dist"
-    },
-    "backend": {
-      "root": "backend",
-      "framework": "nestjs",
-      "entrypoint": "server.ts",
-      "installCommand": "npm ci --include=dev"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci --include=dev && npm ci --prefix frontend --include=dev",
+  "buildCommand": "npm run build --prefix frontend",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/[...path].ts": {
+      "maxDuration": 10
     }
   },
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": { "service": "backend" }
-    },
-    {
-      "source": "/(.*)",
-      "destination": { "service": "frontend" }
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",

@@ -1,11 +1,21 @@
 {
   "name": "planer",
   "private": true,
-  "workspaces": ["frontend", "backend"],
   "engines": {
     "node": "22.x"
   },
   "scripts": {
-    "build": "npm run build --workspace=frontend && npm run build --workspace=backend"
+    "build": "npm run build --prefix frontend",
+    "api:dev": "vercel dev --listen 38147"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^9.11.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.3"
   }
 }

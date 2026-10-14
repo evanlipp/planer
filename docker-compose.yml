@@ -9,21 +9,5 @@ services:
     volumes:
       - mongo_data:/data/db
 
-  backend:
-    build: ./backend
-    command: npm run start:dev
-    ports:
-      - '127.0.0.1:38147:3000'
-    environment:
-      PORT: 3000
-      FRONTEND_ORIGINS: http://localhost:5174
-      MONGODB_URI: mongodb://mongo:27017/planer
-      JWT_SECRET: ${JWT_SECRET}
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
-    depends_on:
-      - mongo
-
 volumes:
   mongo_data:
