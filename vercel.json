@@ -9,7 +9,6 @@
     },
     "backend": {
       "root": "backend",
-      "framework": "express",
       "installCommand": "npm ci --include=dev"
     }
   },
