@@ -9,6 +9,7 @@
     },
     "backend": {
       "root": "backend",
+      "framework": "nestjs",
       "installCommand": "npm ci --include=dev"
     }
   },
