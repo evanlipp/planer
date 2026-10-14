@@ -5,6 +5,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { User, UserSchema } from '../users/user.schema';
+import { BootstrapUserService } from '../users/bootstrap-user.service';
 
 @Module({
   imports: [
@@ -14,11 +15,11 @@ import { User, UserSchema } from '../users/user.schema';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '7d' },
+        signOptions: { expiresIn: '15m' },
       }),
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, BootstrapUserService],
 })
 export class AuthModule {}

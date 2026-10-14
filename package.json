@@ -1,0 +1,11 @@
+{
+  "name": "planer",
+  "private": true,
+  "workspaces": ["frontend", "backend"],
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build": "npm run build --workspace=frontend && npm run build --workspace=backend"
+  }
+}
