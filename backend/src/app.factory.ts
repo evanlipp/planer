@@ -1,6 +1,7 @@
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { ExpressAdapter } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import {
   json,
@@ -14,8 +15,12 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { getAllowedOrigins } from './config/environment';
 
-export async function createApp(): Promise<INestApplication> {
-  const app = await NestFactory.create(AppModule, { bodyParser: false });
+export async function createApp(server?: Express): Promise<INestApplication> {
+  const app = server
+    ? await NestFactory.create(AppModule, new ExpressAdapter(server), {
+        bodyParser: false,
+      })
+    : await NestFactory.create(AppModule, { bodyParser: false });
   const config = app.get(ConfigService);
   const allowedOrigins = getAllowedOrigins(
     config.getOrThrow<string>('FRONTEND_ORIGINS'),

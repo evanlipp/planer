@@ -29,7 +29,7 @@
 
 ## Deployment
 
-Проект развёртывается одним Vercel-проектом из корня репозитория: Vite собирается в `frontend/dist`, а Nest API запускается как Vercel Function по пути `/api/*`. Поэтому frontend и API используют один origin, а refresh-cookie продолжает работать с `SameSite=Strict`.
+Проект развёртывается одним Vercel-проектом в режиме Services: Vite-сервис `frontend` принимает запросы на `/`, а Nest API запускается как Vercel Function в сервисе `backend` по пути `/api/*`. Поэтому frontend и API используют один origin, а refresh-cookie продолжает работать с `SameSite=Strict`.
 
 MongoDB в Vercel не запускается как Docker-контейнер. Создайте небольшой Atlas Free кластер и добавьте в Vercel Production Environment Variables:
 
