@@ -143,10 +143,10 @@ function parseCookies(request: Request) {
   )
 }
 
-function serializeCookie(name: string, value: string, httpOnly: boolean, maxAge = refreshLifetimeSeconds) {
+function serializeCookie(name: string, value: string, httpOnly: boolean, path: string, maxAge = refreshLifetimeSeconds) {
   const attributes = [
     `${name}=${encodeURIComponent(value)}`,
-    'Path=/api/auth',
+    `Path=${path}`,
     `Max-Age=${maxAge}`,
     'SameSite=Strict',
   ]
@@ -155,8 +155,8 @@ function serializeCookie(name: string, value: string, httpOnly: boolean, maxAge 
   return attributes.join('; ')
 }
 
-function clearCookie(name: string, httpOnly: boolean) {
-  return serializeCookie(name, '', httpOnly, 0)
+function clearCookie(name: string, httpOnly: boolean, path: string) {
+  return serializeCookie(name, '', httpOnly, path, 0)
 }
 
 function issueAccessToken(user: HydratedDocument<User>) {
@@ -250,8 +250,8 @@ export default async function handler(request: Request, response: Response) {
       }
       const session = await createSession(user)
       response.setHeader('Set-Cookie', [
-        serializeCookie('refresh_token', session.refreshToken, true),
-        serializeCookie('csrf_token', session.csrfToken, false),
+        serializeCookie('refresh_token', session.refreshToken, true, '/api/auth'),
+        serializeCookie('csrf_token', session.csrfToken, false, '/'),
       ])
       return json(response, 200, { accessToken: session.accessToken, user: publicUser(user) })
     }
@@ -267,14 +267,14 @@ export default async function handler(request: Request, response: Response) {
       user.refreshTokenHash = undefined
       user.csrfTokenHash = undefined
       await user.save()
-      response.setHeader('Set-Cookie', [clearCookie('refresh_token', true), clearCookie('csrf_token', false)])
+      response.setHeader('Set-Cookie', [clearCookie('refresh_token', true, '/api/auth'), clearCookie('csrf_token', false, '/')])
       return response.status(204).end()
     }
 
     const session = await createSession(user)
     response.setHeader('Set-Cookie', [
-      serializeCookie('refresh_token', session.refreshToken, true),
-      serializeCookie('csrf_token', session.csrfToken, false),
+      serializeCookie('refresh_token', session.refreshToken, true, '/api/auth'),
+      serializeCookie('csrf_token', session.csrfToken, false, '/'),
     ])
     return json(response, 200, { accessToken: session.accessToken, user: publicUser(user) })
   } catch (error) {

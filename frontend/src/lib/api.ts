@@ -1,6 +1,10 @@
 import axios from 'axios'
 
-let accessToken: string | null = null
+let accessTokenProvider: () => string | null = () => null
+
+export function setAccessTokenProvider(provider: () => string | null) {
+  accessTokenProvider = provider
+}
 
 function csrfToken() {
   const entry = document.cookie.split('; ').find((cookie) => cookie.startsWith('csrf_token='))
@@ -14,6 +18,7 @@ export const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
+  const accessToken = accessTokenProvider()
   if (accessToken) config.headers.Authorization = `Bearer ${accessToken}`
   return config
 })
@@ -26,7 +31,6 @@ export type AuthResponse = {
 export const authApi = {
   async login(payload: { username: string; password: string }) {
     const { data } = await api.post<AuthResponse>('/auth/login', payload, { withCredentials: true })
-    accessToken = data.accessToken
     return data
   },
   async restore() {
@@ -34,7 +38,6 @@ export const authApi = {
       withCredentials: true,
       headers: { 'X-CSRF-Token': csrfToken() },
     })
-    accessToken = data.accessToken
     return data
   },
   async logout() {
@@ -42,6 +45,5 @@ export const authApi = {
       withCredentials: true,
       headers: { 'X-CSRF-Token': csrfToken() },
     })
-    accessToken = null
   },
 }
