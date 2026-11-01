@@ -32,6 +32,6 @@ try {
   console.log(payload.ok ? 'ok' : String(payload.description ?? 'unknown error'))
   if (!payload.ok) process.exit(1)
 } catch (error) {
-  console.error('Webhook registration failed:', error)
+  console.error('Webhook registration failed:', error instanceof Error ? error.message : 'unknown error')
   process.exit(1)
 }
