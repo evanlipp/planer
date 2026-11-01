@@ -18,9 +18,21 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
   }
 
+  // Не зависит от initialized: используется и повторной попыткой restoreSession,
+  // и одним обновлением из withAuthRetry при 401.
+  async function refreshSession(): Promise<boolean> {
+    try {
+      setSession(await authApi.restore())
+      return true
+    } catch {
+      clearSession()
+      return false
+    }
+  }
+
   async function restoreSession() {
     if (initialized.value) return
-    try { setSession(await authApi.restore()) } catch { clearSession() } finally { initialized.value = true }
+    try { await refreshSession() } finally { initialized.value = true }
   }
 
   async function login(username: string, password: string) {
@@ -32,5 +44,5 @@ export const useAuthStore = defineStore('auth', () => {
     try { await authApi.logout() } finally { clearSession() }
   }
 
-  return { accessToken, user, initialized, isAuthenticated, restoreSession, login, logout }
+  return { accessToken, user, initialized, isAuthenticated, restoreSession, refreshSession, login, logout }
 })

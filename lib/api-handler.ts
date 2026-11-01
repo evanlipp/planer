@@ -14,6 +14,16 @@ type User = {
   csrfTokenHash?: string
 }
 
+type Item = {
+  userId: mongoose.Types.ObjectId
+  type: 'place' | 'event'
+  link?: string
+  description: string
+  date?: Date
+  createdAt?: Date
+  updatedAt?: Date
+}
+
 type Request = {
   method?: string
   url?: string
@@ -45,6 +55,22 @@ const UserModel =
         passwordHash: { type: String, required: true, select: false },
         refreshTokenHash: { type: String, select: false },
         csrfTokenHash: { type: String, select: false },
+      },
+      { timestamps: true },
+    ),
+  )
+
+const ItemModel =
+  (mongoose.models.PlannerItem as mongoose.Model<Item>) ||
+  mongoose.model<Item>(
+    'PlannerItem',
+    new mongoose.Schema<Item>(
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlannerUser', required: true, index: true },
+        type: { type: String, required: true, enum: ['place', 'event'] },
+        link: String,
+        description: { type: String, required: true },
+        date: Date,
       },
       { timestamps: true },
     ),
@@ -110,7 +136,7 @@ async function bootstrapInitialUser() {
       passwordHash: await bcrypt.hash(env.initialPassword, 12),
     })
   } catch (error: unknown) {
-    // Two cold starts can seed simultaneously; the unique index is authoritative.
+    // Два cold start могут создать пользователя одновременно; уникальный индекс решает.
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) return
     throw error
   }
@@ -219,19 +245,340 @@ function applyCors(request: Request, response: Response) {
   return true
 }
 
+function verifyAccessToken(request: Request): string | undefined {
+  const header = requestHeader(request, 'authorization')
+  if (!header?.startsWith('Bearer ')) return undefined
+  try {
+    const payload = jwt.verify(header.slice('Bearer '.length).trim(), env.jwtSecret)
+    if (typeof payload !== 'object') return undefined
+    const sub = (payload as { sub?: unknown }).sub
+    return typeof sub === 'string' ? sub : undefined
+  } catch {
+    return undefined
+  }
+}
+
+type ItemDto = {
+  id: string
+  type: 'place' | 'event'
+  link?: string
+  description: string
+  date?: string
+  createdAt?: string
+}
+
+type ParsedItem = {
+  type: 'place' | 'event'
+  link?: string
+  description: string
+  date?: Date
+}
+
+const itemDatePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{3})?)?(Z|[+-]\d{2}:\d{2})$/
+
+function parseIsoInstant(value: string): Date | undefined {
+  if (!itemDatePattern.test(value)) return undefined
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  const year = date.getUTCFullYear()
+  if (year < 2000 || year > 2100) return undefined
+  return date
+}
+
+function parseHttpsUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function parseItemBody(body: unknown): ParsedItem | undefined {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined
+  const value = body as Record<string, unknown>
+  const allowedKeys = ['type', 'link', 'description', 'date']
+  if (Object.keys(value).some((key) => !allowedKeys.includes(key))) return undefined
+  if (value.type !== 'place' && value.type !== 'event') return undefined
+  if (typeof value.description !== 'string') return undefined
+  const description = value.description.trim()
+  if (description.length < 1 || description.length > 2000) return undefined
+
+  let link: string | undefined
+  if (value.link !== undefined) {
+    if (typeof value.link !== 'string') return undefined
+    if (value.link.trim()) {
+      if (value.link.length > 2048) return undefined
+      link = parseHttpsUrl(value.link.trim())
+      if (!link) return undefined
+    }
+  }
+
+  let date: Date | undefined
+  if (value.date !== undefined) {
+    if (value.type !== 'event' || typeof value.date !== 'string') return undefined
+    date = parseIsoInstant(value.date.trim())
+    if (!date) return undefined
+  }
+
+  return { type: value.type, link, description, date }
+}
+
+function toItemDto(item: HydratedDocument<Item>): ItemDto {
+  return {
+    id: item._id.toString(),
+    type: item.type,
+    link: item.link || undefined,
+    description: item.description,
+    date: item.date ? item.date.toISOString() : undefined,
+    createdAt: item.createdAt?.toISOString(),
+  }
+}
+
+type TelegramUpdate = {
+  message?: {
+    text?: string
+    from?: { id?: number }
+    chat?: { id?: number }
+  }
+}
+
+type GeminiDraft = {
+  type?: unknown
+  link?: unknown
+  description?: unknown
+  date?: unknown
+}
+
+type GeminiResponse = {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+}
+
+function telegramAllowedUserIds(): number[] {
+  return (process.env.TELEGRAM_ALLOWED_USER_IDS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value))
+}
+
+function geminiPrompt(timezone: string, text: string) {
+  return [
+    'Ниже — сообщение пользователя планера. Определи, содержит ли оно конкретное место или событие, которое стоит сохранить. Ничего от себя не придумывай.',
+    `Часовой пояс пользователя: ${timezone}. Текущее время: ${new Date().toISOString()}. Относительные даты («завтра в 8», «в пятницу») переводи в конкретную дату относительно этого времени.`,
+    'date верни строкой RFC 3339 с явным смещением от UTC (например 2026-05-01T19:00:00+03:00); если дата не определяется — null.',
+    'type: "event" для события, "place" для места. Если конкретного места или события в сообщении нет (приветствие, вопрос, болтовня), верни type = "" и description = "" — это сигнал, что сохранять нечего.',
+    'link заполняй, только если в тексте сообщения есть URL.',
+    '',
+    'Сообщение пользователя:',
+    text,
+  ].join('\n')
+}
+
+async function parseWithGemini(apiKey: string, model: string, timezone: string, text: string): Promise<GeminiDraft> {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: geminiPrompt(timezone, text) }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              type: { type: 'STRING', enum: ['event', 'place', ''] },
+              link: { type: 'STRING', nullable: true },
+              description: { type: 'STRING' },
+              date: { type: 'STRING', nullable: true },
+            },
+            required: ['type', 'description'],
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(20_000),
+    },
+  )
+  if (!response.ok) throw new Error(`Gemini API returned ${response.status}`)
+  const payload = await response.json() as GeminiResponse
+  const content = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? ''
+  const draft = JSON.parse(content) as GeminiDraft
+  if (!draft || typeof draft !== 'object') throw new Error('Gemini returned unexpected payload')
+  return draft
+}
+
+async function sendTelegramMessage(botToken: string, chatId: number, text: string) {
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text }),
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch (error) {
+    console.error('Failed to send Telegram message', error)
+  }
+}
+
+function formatItemDate(date: Date, timezone: string) {
+  try {
+    return new Intl.DateTimeFormat('ru-RU', { timeZone: timezone, dateStyle: 'long', timeStyle: 'short' }).format(date)
+  } catch {
+    return date.toISOString()
+  }
+}
+
+async function handleTelegramUpdate(
+  owner: HydratedDocument<User>,
+  botToken: string,
+  geminiApiKey: string,
+  geminiModel: string,
+  timezone: string,
+  chatId: number,
+  text: string,
+) {
+  let draft: GeminiDraft
+  try {
+    draft = await parseWithGemini(geminiApiKey, geminiModel, timezone, text)
+  } catch (error) {
+    console.error('Gemini parsing failed', error)
+    await sendTelegramMessage(botToken, chatId, 'Не смог разобрать сообщение, возможно, сервис анализа недоступен. Попробуй ещё раз позже.')
+    return
+  }
+
+  const type = draft.type
+  const description = typeof draft.description === 'string' ? draft.description.trim().slice(0, 2000) : ''
+  if ((type !== 'place' && type !== 'event') || description.length < 3) {
+    await sendTelegramMessage(botToken, chatId, 'Не понял, что это — место или событие. Напиши конкретнее: что и когда, или пришли ссылку.')
+    return
+  }
+
+  let link: string | undefined
+  const rawLink = typeof draft.link === 'string' ? draft.link.trim() : ''
+  if (rawLink) link = parseHttpsUrl(rawLink)
+
+  const rawDate = typeof draft.date === 'string' ? draft.date.trim() : ''
+  const date = rawDate ? parseIsoInstant(rawDate) : undefined
+
+  try {
+    // Дата имеет смысл только у событий: у мест она не сохраняется, как и в POST /api/items
+    await ItemModel.create({ userId: owner._id, type, link, description, date: type === 'event' ? date : undefined })
+  } catch (error) {
+    console.error('Failed to create planner item from Telegram', error)
+    await sendTelegramMessage(botToken, chatId, 'Понял тебя, но сохранить запись не получилось. Попробуй позже.')
+    return
+  }
+
+  const label = type === 'event' ? 'Сохранил событие' : 'Сохранил место'
+  let suffix = ''
+  if (type === 'place' && rawDate) {
+    suffix = ' — дату не учитываю, сохранил место без неё'
+  } else if (type === 'event' && date) {
+    suffix = ` — ${formatItemDate(date, timezone)}`
+  } else if (type === 'event' && rawDate) {
+    suffix = ' — дату не понял, сохранил без неё'
+  }
+  await sendTelegramMessage(botToken, chatId, `${label}: ${description}${suffix}`)
+}
+
+async function handleTelegramWebhook(request: Request, response: Response) {
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim()
+  if (!webhookSecret) {
+    console.error('TELEGRAM_WEBHOOK_SECRET is not set; refusing Telegram webhook')
+    return json(response, 503, { message: 'Telegram webhook is not configured' })
+  }
+  if (!tokensEqual(requestHeader(request, 'x-telegram-bot-api-secret-token'), hash(webhookSecret))) {
+    return json(response, 401, { message: 'Unauthorized' })
+  }
+
+  const update = request.body as TelegramUpdate | undefined
+  const message = update?.message
+  if (!message || typeof message.text !== 'string' || !message.text.trim()) {
+    return json(response, 200, { ok: true })
+  }
+
+  const chatId = message.chat?.id
+  const fromId = message.from?.id
+  const allowedUserIds = telegramAllowedUserIds()
+  if (typeof chatId !== 'number' || typeof fromId !== 'number' || !allowedUserIds.includes(fromId)) {
+    if (allowedUserIds.length === 0) console.warn('TELEGRAM_ALLOWED_USER_IDS is not set; ignoring Telegram update')
+    return json(response, 200, { ok: true })
+  }
+
+  const ownerUsername = process.env.TELEGRAM_OWNER_USERNAME?.trim().toLowerCase()
+  if (!ownerUsername) {
+    console.error('TELEGRAM_OWNER_USERNAME is not set; ignoring Telegram update')
+    return json(response, 200, { ok: true })
+  }
+
+  let owner: HydratedDocument<User> | undefined
+  try {
+    owner = await UserModel.findOne({ username: ownerUsername }) ?? undefined
+  } catch (error) {
+    console.error('Telegram owner lookup failed; ignoring update', error)
+    return json(response, 200, { ok: true })
+  }
+  if (!owner) {
+    console.error(`Telegram owner user "${ownerUsername}" was not found; ignoring update`)
+    return json(response, 200, { ok: true })
+  }
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim()
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim()
+  if (!botToken || !geminiApiKey) {
+    console.error('TELEGRAM_BOT_TOKEN or GEMINI_API_KEY is not set; ignoring Telegram update')
+    return json(response, 200, { ok: true })
+  }
+
+  const timezone = process.env.TELEGRAM_OWNER_TIMEZONE?.trim() || 'Europe/Moscow'
+  const geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite'
+  try {
+    await handleTelegramUpdate(owner, botToken, geminiApiKey, geminiModel, timezone, chatId, message.text.slice(0, 2000))
+  } catch (error) {
+    console.error('Telegram update processing failed', error)
+  }
+  return json(response, 200, { ok: true })
+}
+
+const routeMethods: Record<string, readonly ('GET' | 'POST')[]> = {
+  '/health': ['GET'],
+  '/auth/login': ['POST'],
+  '/auth/refresh': ['POST'],
+  '/auth/logout': ['POST'],
+  '/items': ['GET', 'POST'],
+  '/telegram/webhook': ['POST'],
+}
+
+const rateCeilings: Record<string, number> = {
+  '/auth/login': 5,
+  '/telegram/webhook': 60,
+}
+
 export default async function handler(request: Request, response: Response) {
   if (!applyCors(request, response)) return
   if (request.method === 'OPTIONS') return response.status(204).end()
 
   const route = new URL(request.url ?? '/', 'http://localhost').pathname.replace(/^\/api/, '')
-  if (!['/health', '/auth/login', '/auth/refresh', '/auth/logout'].includes(route)) {
-    return json(response, 404, { message: 'Not found' })
-  }
-  if ((route === '/health' && request.method !== 'GET') || (route !== '/health' && request.method !== 'POST')) {
-    return json(response, 405, { message: 'Method not allowed' })
-  }
-  if (isRateLimited(request, route, route === '/auth/login' ? 5 : 20)) {
+  const allowedMethods = routeMethods[route]
+  if (!allowedMethods) return json(response, 404, { message: 'Not found' })
+  if (request.method !== 'GET' && request.method !== 'POST') return json(response, 405, { message: 'Method not allowed' })
+  if (!allowedMethods.includes(request.method)) return json(response, 405, { message: 'Method not allowed' })
+  if (isRateLimited(request, route, rateCeilings[route] ?? 20)) {
     return json(response, 429, { message: 'Too many requests' })
+  }
+
+  // Telegram присылает запросы без Origin (CORS уже пропустил) и без cookie:
+  // авторизация — по секретному заголовку внутри handleTelegramWebhook.
+  if (route === '/telegram/webhook') {
+    try {
+      await connectDatabase()
+    } catch (error) {
+      console.error('Database is unavailable; ignoring Telegram update', error)
+      return json(response, 200, { ok: true })
+    }
+    return handleTelegramWebhook(request, response)
   }
 
   try {
@@ -254,6 +601,19 @@ export default async function handler(request: Request, response: Response) {
         serializeCookie('csrf_token', session.csrfToken, false, '/'),
       ])
       return json(response, 200, { accessToken: session.accessToken, user: publicUser(user) })
+    }
+
+    if (route === '/items') {
+      const userId = verifyAccessToken(request)
+      if (!userId || !mongoose.isValidObjectId(userId)) return json(response, 401, { message: 'Unauthorized' })
+      if (request.method === 'GET') {
+        const items = await ItemModel.find({ userId }).sort('-createdAt').limit(200)
+        return json(response, 200, { items: items.map(toItemDto) })
+      }
+      const parsed = parseItemBody(request.body)
+      if (!parsed) return json(response, 400, { message: 'Invalid item' })
+      const created = await ItemModel.create({ userId, ...parsed })
+      return json(response, 201, { item: toItemDto(created) })
     }
 
     const cookies = parseCookies(request)

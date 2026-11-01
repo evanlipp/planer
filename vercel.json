@@ -16,6 +16,12 @@
     },
     "api/auth/logout.ts": {
       "maxDuration": 10
+    },
+    "api/items.ts": {
+      "maxDuration": 10
+    },
+    "api/telegram/webhook.ts": {
+      "maxDuration": 60
     }
   },
   "headers": [
