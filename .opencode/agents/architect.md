@@ -1,7 +1,7 @@
 ---
 description: Designs an implementation plan for a Planer task. Read-only: produces a contract for the coder, never edits files.
 mode: subagent
-model: opencode/big-pickle
+model: opencode/deepseek-v4.1-flash-free
 color: "#3b82f6"
 steps: 10
 permissions:

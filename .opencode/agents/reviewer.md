@@ -1,7 +1,7 @@
 ---
 description: Reviews a Planer diff for correctness, regressions and security invariants. Read-only: reports findings, never fixes them.
 mode: subagent
-model: opencode/big-pickle
+model: opencode/deepseek-v4.1-flash-free
 color: "#ef4444"
 steps: 12
 permissions:

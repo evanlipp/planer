@@ -1,7 +1,7 @@
 ---
 description: Implements one delegated slice of work in the Planer repo. Edits code and runs the build; does not redesign the task.
 mode: subagent
-model: opencode/deepseek-v4.1-flash-free
+model: opencode/glm-5.3-flash-free
 color: "#22c55e"
 steps: 26
 permissions:
