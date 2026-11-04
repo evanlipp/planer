@@ -401,7 +401,11 @@ async function parseWithGemini(apiKey: string, model: string, timezone: string, 
       signal: AbortSignal.timeout(20_000),
     },
   )
-  if (!response.ok) throw new Error(`Gemini API returned ${response.status}`)
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    console.error(`Gemini API error ${response.status}: ${body.slice(0, 500)}`)
+    throw new Error(`Gemini API returned ${response.status}`)
+  }
   const payload = await response.json() as GeminiResponse
   const content = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? ''
   const draft = JSON.parse(content) as GeminiDraft
