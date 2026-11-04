@@ -377,6 +377,7 @@ function geminiPrompt(timezone: string, text: string) {
 }
 
 async function parseWithGemini(apiKey: string, model: string, timezone: string, text: string): Promise<GeminiDraft> {
+  const startedAt = Date.now()
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
@@ -398,15 +399,16 @@ async function parseWithGemini(apiKey: string, model: string, timezone: string, 
           },
         },
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(35_000),
     },
   )
   if (!response.ok) {
     const body = await response.text().catch(() => '')
-    console.error(`Gemini API error ${response.status}: ${body.slice(0, 500)}`)
+    console.error(`Gemini API error ${response.status} (${model}, ${Date.now() - startedAt}ms): ${body.slice(0, 500)}`)
     throw new Error(`Gemini API returned ${response.status}`)
   }
   const payload = await response.json() as GeminiResponse
+  console.error('Gemini call ok:', model, `${Date.now() - startedAt}ms`)
   const content = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? ''
   const draft = JSON.parse(content) as GeminiDraft
   if (!draft || typeof draft !== 'object') throw new Error('Gemini returned unexpected payload')
