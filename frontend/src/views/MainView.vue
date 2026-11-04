@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { itemsApi, type PlannerItem } from '../lib/api'
 
@@ -15,6 +15,14 @@ const listError = ref(false)
 const submitting = ref(false)
 const submitError = ref('')
 const savedNote = ref(false)
+
+const activeTab = ref<'all' | 'place' | 'event'>('all')
+
+const filteredItems = computed(() => activeTab.value === 'all' ? items.value : items.value.filter(item => item.type === activeTab.value))
+const allCount = computed(() => items.value.length)
+const placeCount = computed(() => items.value.filter(item => item.type === 'place').length)
+const eventCount = computed(() => items.value.filter(item => item.type === 'event').length)
+const emptyText = computed(() => activeTab.value === 'place' ? 'Мест пока нет' : activeTab.value === 'event' ? 'Событий пока нет' : 'Пока пусто')
 
 async function loadItems() {
   loading.value = true
@@ -114,14 +122,19 @@ function formatItemDate(value?: string) {
     <p v-if="savedNote" class="saved-note">Сохранили ✓</p>
 
     <section class="list" aria-live="polite">
+      <div class="tabs" role="group" aria-label="Фильтр записей">
+        <button class="tab" type="button" :class="{ tab_active: activeTab === 'all' }" :aria-pressed="activeTab === 'all'" @click="activeTab = 'all'">Все записи · {{ allCount }}</button>
+        <button class="tab" type="button" :class="{ tab_active: activeTab === 'place' }" :aria-pressed="activeTab === 'place'" @click="activeTab = 'place'">Места · {{ placeCount }}</button>
+        <button class="tab" type="button" :class="{ tab_active: activeTab === 'event' }" :aria-pressed="activeTab === 'event'" @click="activeTab = 'event'">События · {{ eventCount }}</button>
+      </div>
       <p v-if="loading" class="list-status">Загружаем…</p>
       <template v-else-if="listError">
         <p class="list-status">Не удалось загрузить список</p>
         <button class="retry-button" type="button" @click="loadItems">Повторить</button>
       </template>
-      <p v-else-if="!items.length" class="list-status empty">Пока пусто… Сохрани первое место или событие</p>
+      <p v-else-if="!filteredItems.length" class="list-status empty">{{ emptyText }}</p>
       <ul v-else class="items">
-        <li v-for="item in items" :key="item.id" class="item-card">
+        <li v-for="item in filteredItems" :key="item.id" class="item-card">
           <div class="item-head">
             <span class="item-badge" :class="{ 'item-badge_event': item.type === 'event' }">
               {{ item.type === 'place' ? 'Место' : 'Событие' }}
@@ -171,6 +184,10 @@ function formatItemDate(value?: string) {
 .list { display: grid; gap: 12px; width: min(100%, 38rem); justify-self: center; }
 .list-status { width: min(100%, 38rem); margin: 0; text-align: center; font-size: clamp(1.25rem, 4vw, 2.25rem); line-height: 1.3; letter-spacing: -.03em; }
 .list .list-status.empty { justify-self: center; }
+.tabs { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; border: 1px solid rgb(255 255 255 / 52%); border-radius: 999px; background: rgb(250 252 255 / 55%); box-shadow: 0 8px 22px rgb(48 55 69 / 10%), inset 0 1px 0 rgb(255 255 255 / 55%); padding: 5px; -webkit-backdrop-filter: blur(18px) saturate(140%); backdrop-filter: blur(18px) saturate(140%); }
+.tab { border: 1px solid transparent; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; padding: .5rem 1rem; font-size: .88rem; font-weight: 600; letter-spacing: -.01em; }
+.tab:hover { background: rgb(255 255 255 / 35%); }
+.tab_active { border-color: rgb(255 255 255 / 60%); background: rgb(255 255 255 / 62%); box-shadow: inset 0 1px 0 rgb(255 255 255 / 60%); }
 .retry-button { justify-self: center; border: 1px solid rgb(255 255 255 / 52%); border-radius: 999px; background: rgb(255 255 255 / 35%); color: inherit; cursor: pointer; padding: .55rem 1.2rem; font-weight: 600; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
 .saved-note { justify-self: center; margin: 0; border: 1px solid rgb(111 160 132 / 55%); border-radius: 999px; background: rgb(232 246 238 / 70%); padding: .4rem .9rem; font-size: .84rem; font-weight: 600; }
 .items { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
@@ -191,5 +208,5 @@ function formatItemDate(value?: string) {
 .create-form { display: grid; gap: 15px; }.create-form label:not(.radio-option), fieldset { display: grid; gap: 7px; }.create-form span, legend { font-size: .84rem; font-weight: 600; }.create-form input:not([type='radio']), textarea { width: 100%; border: 1px solid rgb(255 255 255 / 52%); border-radius: 14px; background: rgb(255 255 255 / 48%); color: inherit; outline: none; padding: .8rem .9rem; resize: vertical; }.create-form input:focus, textarea:focus { border-color: rgb(101 117 142 / 70%); box-shadow: 0 0 0 3px rgb(124 141 165 / 18%); }
 fieldset { margin: 0; padding: 0; border: 0; }legend { margin-bottom: 9px; }.radio-option { display: flex; align-items: center; gap: 8px; width: fit-content; cursor: pointer; }.radio-option input { width: 16px; height: 16px; accent-color: #526273; }
 @media (min-width: 768px) { .main-page { padding: 48px; }.brand { top: 32px; left: 32px; }.create-button { top: 28px; right: 28px; }.create-modal { padding: 22px; border-radius: 28px; } }
-@media (prefers-color-scheme: dark) { .create-button { border-color: rgb(255 255 255 / 15%); background: rgb(28 34 44 / 48%); }.create-modal { border-color: rgb(255 255 255 / 14%); background: rgb(27 32 42 / 72%); box-shadow: 0 24px 70px rgb(0 0 0 / 32%), inset 0 1px 0 rgb(255 255 255 / 12%); }.close-button, .create-form input:not([type='radio']), textarea { border-color: rgb(255 255 255 / 13%); background: rgb(255 255 255 / 9%); }.retry-button { border-color: rgb(255 255 255 / 15%); background: rgb(28 34 44 / 48%); }.saved-note { border-color: rgb(121 176 148 / 35%); background: rgb(28 44 38 / 62%); }.form-error { border-color: rgb(220 112 112 / 40%); background: rgb(58 34 34 / 62%); }.submit-button { border-color: rgb(255 255 255 / 15%); background: rgb(255 255 255 / 12%); }.submit-button:hover { background: rgb(255 255 255 / 22%); }.item-card { border-color: rgb(255 255 255 / 14%); background: rgb(27 32 42 / 72%); box-shadow: 0 12px 34px rgb(0 0 0 / 26%), inset 0 1px 0 rgb(255 255 255 / 12%); }.item-badge { border-color: rgb(255 255 255 / 18%); background: rgb(255 255 255 / 10%); }.item-badge_event { border-color: rgb(138 162 224 / 40%); background: rgb(46 58 94 / 55%); }.item-date { color: rgb(196 205 218); }.item-link { color: rgb(146 180 240); } }
+@media (prefers-color-scheme: dark) { .create-button { border-color: rgb(255 255 255 / 15%); background: rgb(28 34 44 / 48%); }.create-modal { border-color: rgb(255 255 255 / 14%); background: rgb(27 32 42 / 72%); box-shadow: 0 24px 70px rgb(0 0 0 / 32%), inset 0 1px 0 rgb(255 255 255 / 12%); }.close-button, .create-form input:not([type='radio']), textarea { border-color: rgb(255 255 255 / 13%); background: rgb(255 255 255 / 9%); }.retry-button { border-color: rgb(255 255 255 / 15%); background: rgb(28 34 44 / 48%); }.saved-note { border-color: rgb(121 176 148 / 35%); background: rgb(28 44 38 / 62%); }.form-error { border-color: rgb(220 112 112 / 40%); background: rgb(58 34 34 / 62%); }.submit-button { border-color: rgb(255 255 255 / 15%); background: rgb(255 255 255 / 12%); }.submit-button:hover { background: rgb(255 255 255 / 22%); }.item-card { border-color: rgb(255 255 255 / 14%); background: rgb(27 32 42 / 72%); box-shadow: 0 12px 34px rgb(0 0 0 / 26%), inset 0 1px 0 rgb(255 255 255 / 12%); }.item-badge { border-color: rgb(255 255 255 / 18%); background: rgb(255 255 255 / 10%); }.item-badge_event { border-color: rgb(138 162 224 / 40%); background: rgb(46 58 94 / 55%); }.item-date { color: rgb(196 205 218); }.item-link { color: rgb(146 180 240); }.tabs { border-color: rgb(255 255 255 / 14%); background: rgb(27 32 42 / 72%); box-shadow: 0 8px 22px rgb(0 0 0 / 22%), inset 0 1px 0 rgb(255 255 255 / 12%); }.tab { color: rgb(196 205 218); }.tab:hover { background: rgb(255 255 255 / 10%); }.tab_active { border-color: rgb(255 255 255 / 22%); background: rgb(255 255 255 / 14%); color: inherit; box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%); } }
 </style>
